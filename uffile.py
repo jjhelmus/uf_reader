@@ -1,4 +1,5 @@
 import struct
+import numpy as np
 
 
 class UFFile(object):
@@ -27,8 +28,37 @@ class UFFile(object):
         else:
             raise IOError('file in not a valid UF file')
 
+        # read in the mandatory and optional header (if present)
         self.mandatory_header = _unpack_from_file(f, UF_MANDATORY_HEADER)
-        f.close
+        if self.mandatory_header['offset_optional_header'] != 0:
+            offset = (self.mandatory_header['offset_optional_header'] - 1) * 2
+            f.seek(offset + extra_offset)
+            self.optional_header = _unpack_from_file(f, UF_OPTIONAL_HEADER)
+        else:
+            self.optional_header = None
+
+        # read in
+        offset = (self.mandatory_header['offset_data_header'] - 1) * 2
+        f.seek(offset + extra_offset)
+        self.data_header = _unpack_from_file(f, UF_DATA_HEADER)
+        self.field_data = [_unpack_from_file(f, UF_FIELD_POSITION) for
+                           i in range(self.data_header['record_nfields'])]
+
+        # first moment, first ray
+        offset = (self.field_data[0]['offset_field_header'] - 1) * 2
+        f.seek(offset + extra_offset)
+        self.field_header = _unpack_from_file(f, UF_FIELD_HEADER)
+
+        offset = (self.field_header['data_offset'] - 1) * 2
+        f.seek(offset + extra_offset)
+        s = f.read(self.field_header['nbins']*2)
+        self.raw_data = np.fromstring(s, dtype='>i2')
+
+        data = self.raw_data / float(self.field_header['scale_factor'])
+        mask = self.raw_data == self.mandatory_header['missing_data_value']
+        self.data = np.ma.masked_array(data, mask)
+
+        f.close()
         return
 
 def _structure_size(structure):
@@ -109,6 +139,7 @@ UF_OPTIONAL_HEADER = (
     ('baseline_elevation', INT16),
     ('volume_hour', INT16),
     ('volume_minute', INT16),
+    ('volume_second', INT16),
     ('tape_name', '8s'),
     ('flag', INT16)
 )
@@ -120,8 +151,8 @@ UF_DATA_HEADER = (
 )
 
 UF_FIELD_POSITION = (
-    ('field_data_type', INT16),
-    ('field_position', INT16),
+    ('data_type', '2s'),
+    ('offset_field_header', INT16),
 )
 
 UF_FIELD_HEADER = (

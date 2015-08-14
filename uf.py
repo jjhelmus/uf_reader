@@ -7,9 +7,21 @@ import warnings
 import numpy as np
 
 from pyart.config import FileMetadata, get_fillvalue
-from pyart.io.common import make_time_unit_str, _test_arguments
+from pyart.io.common import make_time_unit_str, _test_arguments, dms_to_d
 from pyart.core.radar import Radar
 from uffile import UFFile
+
+
+UF_SWEEP_MODES = {
+    0: 'calibration',
+    1: 'ppi',
+    2: 'coplane',
+    3: 'rhi',
+    4: 'vpt',
+    5: 'target',
+    6: 'manual',
+    7: 'idle',
+}
 
 def read_uf(filename, field_names=None, additional_metadata=None,
                file_field_names=False, exclude_fields=None,
@@ -20,7 +32,7 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     Parameters
     ----------
     filename : str
-        Name of GAMIC HDF5 file to read data from.
+        Name of Universal format file to read data from.
     field_names : dict, optional
         Dictionary mapping field names in the file names to radar field names.
         Unlike other read functions, fields not in this dictionary or having a
@@ -59,42 +71,54 @@ def read_uf(filename, field_names=None, additional_metadata=None,
 
     # Open UF file and get handle
     ufile = UFFile(filename)
+    nsweeps = ufile.mandatory_header['sweep_number']
 
     # time
-    time = filemetadata('time')
     year = ufile.mandatory_header['year']
-    #t_data = gfile.ray_header('timestamp', 'int64')
-    #start_epoch = t_data[0] // 1.e6     # truncate to second resolution
-    #start_time = datetime.datetime.utcfromtimestamp(start_epoch)
-    #time['units'] = make_time_unit_str(start_time)
-    #time['data'] = ((t_data - start_epoch * 1.e6) / 1.e6).astype('float64')
-    time['data'] = np.arange(100)
+    if year < 1900:
+        year += 2000   # years after 2000, 11 -> 2011
+    month = ufile.mandatory_header['month']
+    day = ufile.mandatory_header['day']
+    hour = ufile.mandatory_header['hour']
+    minute = ufile.mandatory_header['minute']
+    second = ufile.mandatory_header['second']
+    start_time = datetime.datetime(year, month, day, hour, minute, second)
+    time = filemetadata('time')
+    time['units'] = make_time_unit_str(start_time)
+    time['data'] = np.array([0], dtype='float64')
 
     # range
     _range = filemetadata('range')
-    #ngates = int(gfile.raw_scan0_group_attr('how', 'bin_count'))
-    #range_start = float(gfile.raw_scan0_group_attr('how', 'range_start'))
-    #range_step = float(gfile.raw_scan0_group_attr('how', 'range_step'))
-    # range_step may need to be scaled by range_samples
-    # XXX This gives distances to start of gates not center, this matches
-    # Radx but may be incorrect, add range_step / 2. for center
-    _range['data'] = np.arange(100)
-    #_range['data'] = (np.arange(ngates, dtype='float32') * range_step +
-                      #range_start)
-    #_range['meters_to_center_of_first_gate'] = range_start
-    #_range['meters_between_gates'] = range_step
+    ngates = ufile.field_header['nbins']
+    start = ufile.field_header['range_start_m']
+    step = ufile.field_header['range_spacing_m']
+    # this gives distances to the start of each gate, add step/2 for center
+    _range['data'] = np.arange(ngates, dtype='float32') * step + start
+    _range['meters_to_center_of_first_gate'] = start
+    _range['meters_between_gates'] = step
 
     # latitude, longitude and altitude
     latitude = filemetadata('latitude')
     longitude = filemetadata('longitude')
     altitude = filemetadata('altitude')
-    #latitude['data'] = gfile.where_attr('lat', 'float64')
-    #longitude['data'] = gfile.where_attr('lon', 'float64')
-    #altitude['data'] = gfile.where_attr('height', 'float64')
+    lat_deg = ufile.mandatory_header['latitude_degrees']
+    lat_min = ufile.mandatory_header['latitude_minutes']
+    lat_sec = ufile.mandatory_header['latitude_seconds'] / 64.
+    lat = dms_to_d([lat_deg, lat_min, lat_sec])
+    lon_deg = ufile.mandatory_header['longitude_degrees']
+    lon_min = ufile.mandatory_header['longitude_minutes']
+    lon_sec = ufile.mandatory_header['longitude_seconds'] / 64.
+    lon = dms_to_d([lon_deg, lon_min, lon_sec])
+    latitude['data'] = np.array([lat], dtype='float64')
+    longitude['data'] = np.array([lon], dtype='float64')
+    altitude['data'] = np.array(
+        [ufile.mandatory_header['height_above_sea_level']], dtype='float64')
 
     # metadata
     metadata = filemetadata('metadata')
     metadata['original_container'] = 'UF'
+    metadata['site_name'] = ufile.mandatory_header['site_name']
+    metadata['radar_name'] = ufile.mandatory_header['radar_name']
 
     # sweep_start_ray_index, sweep_end_ray_index
     sweep_start_ray_index = filemetadata('sweep_start_ray_index')
@@ -104,14 +128,14 @@ def read_uf(filename, field_names=None, additional_metadata=None,
 
     # sweep number
     sweep_number = filemetadata('sweep_number')
-    sweep_number['data'] = np.array([0])
+    sweep_number['data'] = np.arange(nsweeps, dtype='int32')
     #try:
         #sweep_number['data'] = gfile.what_attrs('set_idx', 'int32')
     #except KeyError:
         #sweep_number['data'] = np.arange(gfile.nsweeps, dtype='int32')
 
     # sweep_type
-    scan_type = 'ppi'
+    scan_type = UF_SWEEP_MODES[ufile.mandatory_header['sweep_mode']]
     #scan_type = gfile.raw_scan0_group_attr('what', 'scan_type').lower()
     # check that all scans in the volume are the same type
     #if not gfile.is_file_single_scan_type():
@@ -159,7 +183,5 @@ def read_uf(filename, field_names=None, additional_metadata=None,
         sweep_number, sweep_mode, fixed_angle, sweep_start_ray_index,
         sweep_end_ray_index,
         azimuth, elevation,
-        instrument_parameters=instrument_parameters,
-        ray_angle_res=None, rays_are_indexed=None, scan_rate=None,
-        target_scan_rate=None)
+        instrument_parameters=instrument_parameters)
 
