@@ -1,142 +1,165 @@
 
 import struct
 
+import datetime
+import warnings
 
-def read_uf(filename):
-    f = open(filename, 'rb')
-    buf = f.read(6)
-    
-    if buf[:2] == 'UF':
-        f.seek(0)
-        extra_offset = 0
-    elif buf[2:4] == 'UF':
-        f.seek(2)
-        extra_offset = 2
-    elif buf[4:6] == 'UF':
-        f.seek(4)
-        extra_offset = 4
-    else:
-        raise IOError('file in not a valid UF file')
+import numpy as np
 
-    mandatory_header = read_header_block(f)
-    dic = {'mandatory_header': mandatory_header}
+from pyart.config import FileMetadata, get_fillvalue
+from pyart.io.common import make_time_unit_str, _test_arguments
+from pyart.core.radar import Radar
+from uffile import UFFile
 
-    offset_optional_header = mandatory_header['offset_optional_header']
-    offset_local_use_header = mandatory_header['offset_local_use_header']
-    offset_data_header = mandatory_header['offset_data_header']
-    
-    if offset_optional_header != offset_local_use_header:
-        f.seek(2 * (offset_optional_header - 1) + extra_offset)
-        optional_header = read_optional_header_block(f)
-        dic['optional_header'] = optional_header
-    
-    if offset_local_use_header != offset_data_header:
-        pass    # do not know structure of local use header
+def read_uf(filename, field_names=None, additional_metadata=None,
+               file_field_names=False, exclude_fields=None,
+               valid_range_from_file=True, units_from_file=True, **kwargs):
+    """
+    Read a UF File.
 
-    
+    Parameters
+    ----------
+    filename : str
+        Name of GAMIC HDF5 file to read data from.
+    field_names : dict, optional
+        Dictionary mapping field names in the file names to radar field names.
+        Unlike other read functions, fields not in this dictionary or having a
+        value of None are still included in the radar.fields dictionary, to
+        exclude them use the `exclude_fields` parameter. Fields which are
+        mapped by this dictionary will be renamed from key to value.
+    additional_metadata : dict of dicts, optional
+        This parameter is not used, it is included for uniformity.
+    file_field_names : bool, optional
+        True to force the use of the field names from the file in which
+        case the `field_names` parameter is ignored. False will use to
+        `field_names` parameter to rename fields.
+    exclude_fields : list or None, optional
+        List of fields to exclude from the radar object. This is applied
+        after the `file_field_names` and `field_names` parameters.
+    valid_range_from_file : bool, optional
+        True to extract valid range (valid_min and valid_max) for all
+        field from the file when they are present.  False will not extract
+        these parameters.
+    units_from_file : bool, optional
+        True to extract the units for all fields from the file when available.
+        False will not extract units using the default units for the fields.
 
-    return dic
+    Returns
+    -------
+    radar : Radar
+        Radar object.
+
+    """
+    # test for non empty kwargs
+    _test_arguments(kwargs)
+
+    # create metadata retrieval object
+    filemetadata = FileMetadata('uf', field_names, additional_metadata,
+                                file_field_names, exclude_fields)
+
+    # Open UF file and get handle
+    ufile = UFFile(filename)
+
+    # time
+    time = filemetadata('time')
+    year = ufile.mandatory_header['year']
+    #t_data = gfile.ray_header('timestamp', 'int64')
+    #start_epoch = t_data[0] // 1.e6     # truncate to second resolution
+    #start_time = datetime.datetime.utcfromtimestamp(start_epoch)
+    #time['units'] = make_time_unit_str(start_time)
+    #time['data'] = ((t_data - start_epoch * 1.e6) / 1.e6).astype('float64')
+    time['data'] = np.arange(100)
+
+    # range
+    _range = filemetadata('range')
+    #ngates = int(gfile.raw_scan0_group_attr('how', 'bin_count'))
+    #range_start = float(gfile.raw_scan0_group_attr('how', 'range_start'))
+    #range_step = float(gfile.raw_scan0_group_attr('how', 'range_step'))
+    # range_step may need to be scaled by range_samples
+    # XXX This gives distances to start of gates not center, this matches
+    # Radx but may be incorrect, add range_step / 2. for center
+    _range['data'] = np.arange(100)
+    #_range['data'] = (np.arange(ngates, dtype='float32') * range_step +
+                      #range_start)
+    #_range['meters_to_center_of_first_gate'] = range_start
+    #_range['meters_between_gates'] = range_step
+
+    # latitude, longitude and altitude
+    latitude = filemetadata('latitude')
+    longitude = filemetadata('longitude')
+    altitude = filemetadata('altitude')
+    #latitude['data'] = gfile.where_attr('lat', 'float64')
+    #longitude['data'] = gfile.where_attr('lon', 'float64')
+    #altitude['data'] = gfile.where_attr('height', 'float64')
+
+    # metadata
+    metadata = filemetadata('metadata')
+    metadata['original_container'] = 'UF'
+
+    # sweep_start_ray_index, sweep_end_ray_index
+    sweep_start_ray_index = filemetadata('sweep_start_ray_index')
+    sweep_end_ray_index = filemetadata('sweep_end_ray_index')
+    #sweep_start_ray_index['data'] = gfile.start_ray.astype('int32')
+    #sweep_end_ray_index['data'] = gfile.end_ray.astype('int32')
+
+    # sweep number
+    sweep_number = filemetadata('sweep_number')
+    sweep_number['data'] = np.array([0])
+    #try:
+        #sweep_number['data'] = gfile.what_attrs('set_idx', 'int32')
+    #except KeyError:
+        #sweep_number['data'] = np.arange(gfile.nsweeps, dtype='int32')
+
+    # sweep_type
+    scan_type = 'ppi'
+    #scan_type = gfile.raw_scan0_group_attr('what', 'scan_type').lower()
+    # check that all scans in the volume are the same type
+    #if not gfile.is_file_single_scan_type():
+        #raise NotImplementedError('Mixed scan_type volume.')
+    #if scan_type not in ['ppi', 'rhi']:
+        #message = "Unknown scan type: %s, reading as RHI scans." % (scan_type)
+        #warnings.warn(message)
+        #scan_type = 'rhi'
+
+    # sweep_mode, fixed_angle
+    sweep_mode = filemetadata('sweep_mode')
+    fixed_angle = filemetadata('fixed_angle')
+    #if scan_type == 'rhi':
+        #sweep_mode['data'] = np.array(gfile.nsweeps * ['rhi'])
+        #fixed_angle['data'] = gfile.how_attrs('azimuth', 'float32')
+    #elif scan_type == 'ppi':
+        #sweep_mode['data'] = np.array(gfile.nsweeps * ['azimuth_surveillance'])
+        #fixed_angle['data'] = gfile.how_attrs('elevation', 'float32')
 
 
 
-def read_header_block(f):
-    fmt = '>2s 9h 8s 8s 13h 2s 8h 8s h'
-    l = struct.unpack(fmt, f.read(struct.calcsize(fmt)))
+    # elevation
+    elevation = filemetadata('elevation')
+    #start_angle = gfile.ray_header('elevation_start', 'float32')
+    #stop_angle = gfile.ray_header('elevation_stop', 'float32')
+    #elevation['data'] = _avg_radial_angles(start_angle, stop_angle)
 
-    d = {}
-    d['uf_string'] = l[0]                   # 2s
-    d['record_length'] = l[1]               # 9h:1
-    d['offset_optional_header'] = l[2]      # 9h:2
-    d['offset_local_use_header'] = l[3]     # 9h:3
-    d['offset_data_header'] = l[4]          # 9h:4
-    d['physical_record_number'] = l[5]      # 9h:5
-    d['volume_scan_number'] = l[6]          # 9h:6
-    d['ray_number'] = l[7]                  # 9h:7
-    d['ray_record_number'] = l[8]           # 9h:8
-    d['sweep_number'] = l[9]                # 9h:9
-    d['radar_name'] = l[10]                 # 8s
-    d['site_name'] = l[11]                  # 8s
-    d['latitude_degrees'] = l[12]           # 13h:1
-    d['latitude_minutes'] = l[13]           # 13h:2
-    d['latitude_seconds'] = l[14]           # 13h:3
-    d['longitude_degrees'] = l[15]          # 13h:4
-    d['longitude_minutes'] = l[16]          # 13h:5
-    d['longitude_seconds'] = l[17]          # 13h:6
-    d['height_above_sea_level'] = l[18]     # 13h:7
-    d['year'] = l[19]                       # 13h:8
-    d['month'] = l[20]                      # 13h:9
-    d['day'] = l[21]                        # 13h:10
-    d['hour'] = l[22]                       # 13h:11
-    d['minute'] = l[23]                     # 13h:12
-    d['second'] = l[24]                     # 13h:13
-    d['time_zone'] = l[25]                  # 2s
-    d['azimuth'] = l[26]                    # 8h:1
-    d['elevation'] = l[27]                  # 8h:2
-    d['sweep_mode'] = l[28]                 # 8h:3
-    d['fixed_angle'] = l[29]                # 8h:4
-    d['sweep_rate'] = l[30]                 # 8h:5
-    d['generation_year'] = l[31]            # 8h:6
-    d['generation_month'] = l[32]           # 8h:7
-    d['generation_day' ] = l[33]            # 8h:8
-    d['generation_facility_name'] = l[34]   # 8s
-    d['missing_data_value'] = l[35]          # h
-    
-    return d
+    # azimuth
+    azimuth = filemetadata('azimuth')
+    #start_angle = gfile.ray_header('azimuth_start', 'float32')
+    #stop_angle = gfile.ray_header('azimuth_stop', 'float32')
+    #azimuth['data'] = _avg_radial_angles(start_angle, stop_angle) % 360.
 
+    # fields
+    fields = {}
 
-def read_optional_header_block(f):
-    fmt = '>8s 5h 8s h'
-    l = struct.unpack(fmt, f.read(struct.calcsize(fmt)))
-    d = {}
-    d['project_name'] = l[0]            # 8s
-    d['baseline_azimuth'] = l[1]        # 5h:1
-    d['baseline_elevation'] = l[2]      # 5h:2
-    d['volume_start_hour'] = l[3]       # 5h:3
-    d['volume_start_minute'] = l[4]     # 5h:4
-    d['volume_start_second'] = l[5]     # 5h:5
-    d['field_tape_name'] = l[6]         # 8s
-    d['spacing_flag'] = l[7]            # h
-    return d
+    # instrument_parameters
+    instrument_parameters = None
 
+    #ufile.close()
 
-def read_data_header(f):
-    fmt = '>3h'
-    l = struct.unpack(fmt, f.read(struct.calcsize(fmt)))
-    d = {}
-    d['number_ray_fields'] = l[0]
-    d['number_ray_records'] = l[1]
-    d['number_record_fields'] = l[2]
-    nfields = l[0]
-    d['field_name'] = ['XX'] * nfields
-    d['offset_field_header'] = [0] * nfields
-    for i in range(nfields):
-        fmt = '>2s h'
-        l = struct.unpack(fmt, f.read(struct.calcsize(fmt)))
-        d['field_name'][i] = l[0]
-        d['offset_field_header'][i] = l[1]
-    return d
+    return Radar(
+        time, _range, fields, metadata, scan_type,
+        latitude, longitude, altitude,
+        sweep_number, sweep_mode, fixed_angle, sweep_start_ray_index,
+        sweep_end_ray_index,
+        azimuth, elevation,
+        instrument_parameters=instrument_parameters,
+        ray_angle_res=None, rays_are_indexed=None, scan_rate=None,
+        target_scan_rate=None)
 
-def read_field_header(f):
-    fmt = '>13h 2s 2h 2s 2h'
-    l = struct.unpack(fmt, f.read(struct.calcsize(fmt)))
-    d = {}
-    d['data_position'] = l[0]           # 13h:1
-    d['scale_factor'] = l[1]            # 13h:2
-    d['start_range'] = l[2]             # 13h:3
-    d['range_adjustment'] = l[3]        # 13h:4
-    d['volume_spacing'] = l[4]          # 13h:5
-    d['number_volumes'] = l[5]          # 13h:6
-    d['volume_depth'] = l[6]            # 13h:7
-    d['beam_width_horizontal'] = l[7]   # 13h:8
-    d['beam_width_vertical'] = l[8]     # 13h:9
-    d['reciever_bandwidth'] = l[9]      # 13h:10
-    d['polarization'] = l[10]           # 13h:11
-    d['wavelength'] = l[11]             # 13h:12
-    d['number_of_samples'] = l[12]      # 13h:13
-    d['threshold_field'] = l[13]        # 2s
-    d['threshold_value'] = l[14]        # 2h:1
-    d['scale'] = l[15]                  # 2h:2
-    d['edit_code'] = l[16]
-    d['pulse_repetition_time'] = l[17]
-    d['bits_per_volume'] = l[18]
-    return d
