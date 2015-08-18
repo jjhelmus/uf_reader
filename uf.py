@@ -90,9 +90,10 @@ def read_uf(filename, field_names=None, additional_metadata=None,
 
     # range
     _range = filemetadata('range')
-    ngates = ufile.field_header['nbins']
-    start = ufile.field_header['range_start_m']
-    step = ufile.field_header['range_spacing_m']
+    field_header = ufile.field_headers[0]
+    ngates = field_header['nbins']
+    start = field_header['range_start_m']
+    step = field_header['range_spacing_m']
     # this gives distances to the start of each gate, add step/2 for center
     _range['data'] = np.arange(ngates, dtype='float32') * step + start
     _range['meters_to_center_of_first_gate'] = start

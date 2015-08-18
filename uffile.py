@@ -13,52 +13,46 @@ class UFFile(object):
         self._filename = filename
 
         f = open(filename, 'rb')
-        buf = f.read(6)
+        buf = f.read(8)
 
         if buf[:2] == 'UF':
-            f.seek(0)
-            extra_offset = 0
+            padding = 0
         elif buf[2:4] == 'UF':
-            f.seek(2)
-            extra_offset = 2
+            padding = 2
         elif buf[4:6] == 'UF':
-            f.seek(4)
-            extra_offset = 4
+            padding = 4
         else:
             raise IOError('file in not a valid UF file')
-        self.extra_offset = extra_offset
-        self.f = f
+        self.padding = padding
 
-        # read in the mandatory and optional header (if present)
-        self.mandatory_header = _unpack_from_file(f, UF_MANDATORY_HEADER)
+        # read in the first record
+        record_size = struct.unpack('>h', buf[padding+2:padding+4])[0] * 2
+        bytes_read = len(buf) - padding
+        bytes_to_read = record_size - bytes_read
+        self._buf = buf[-bytes_read:] + f.read(bytes_to_read)
+
+        # read in the mandatory header
+        self.mandatory_header = _unpack_from_buf(
+            self._buf, 0, UF_MANDATORY_HEADER)
+
+        # read in optional header (if present)
         if self.mandatory_header['offset_optional_header'] != 0:
             offset = (self.mandatory_header['offset_optional_header'] - 1) * 2
-            f.seek(offset + extra_offset)
-            self.optional_header = _unpack_from_file(f, UF_OPTIONAL_HEADER)
+            self.optional_header = _unpack_from_buf(
+                self._buf, offset, UF_OPTIONAL_HEADER)
         else:
             self.optional_header = None
 
-        # read in
+        # read in data header
         offset = (self.mandatory_header['offset_data_header'] - 1) * 2
-        f.seek(offset + extra_offset)
-        self.data_header = _unpack_from_file(f, UF_DATA_HEADER)
-        self.field_data = [_unpack_from_file(f, UF_FIELD_POSITION) for
-                           i in range(self.data_header['record_nfields'])]
+        self.data_header = _unpack_from_buf(self._buf, offset, UF_DATA_HEADER)
+        # read in field position information
+        self.field_data = [
+            _unpack_from_buf(self._buf, offset + 6 + i*4, UF_FIELD_POSITION)
+            for i in range(self.data_header['record_nfields'])]
 
-        # first moment, first ray
-        offset = (self.field_data[0]['offset_field_header'] - 1) * 2
-        f.seek(offset + extra_offset)
-        self.field_header = _unpack_from_file(f, UF_FIELD_HEADER)
-
-        offset = (self.field_header['data_offset'] - 1) * 2
-        f.seek(offset + extra_offset)
-        s = f.read(self.field_header['nbins']*2)
-        self.raw_data = np.fromstring(s, dtype='>i2')
-
-        data = self.raw_data / float(self.field_header['scale_factor'])
-        mask = self.raw_data == self.mandatory_header['missing_data_value']
-        self.data = np.ma.masked_array(data, mask)
-
+        # read field data
+        self.field_headers = []
         self.all_data = [self.get_field_data(i) for i in
                          range(self.data_header['record_nfields'])]
 
@@ -67,12 +61,11 @@ class UFFile(object):
     def get_field_data(self, field_number):
 
         offset = (self.field_data[field_number]['offset_field_header'] - 1) * 2
-        self.f.seek(offset + self.extra_offset)
-        field_header = _unpack_from_file(self.f, UF_FIELD_HEADER)
+        field_header = _unpack_from_buf(self._buf, offset, UF_FIELD_HEADER)
+        self.field_headers.append(field_header)
 
         offset = (field_header['data_offset'] - 1) * 2
-        self.f.seek(offset + self.extra_offset)
-        s = self.f.read(field_header['nbins']*2)
+        s = self._buf[offset:offset+field_header['nbins']*2]
         raw_data = np.fromstring(s, dtype='>i2')
 
         data = raw_data / float(field_header['scale_factor'])
