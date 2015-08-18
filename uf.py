@@ -23,9 +23,10 @@ UF_SWEEP_MODES = {
     7: 'idle',
 }
 
+
 def read_uf(filename, field_names=None, additional_metadata=None,
-               file_field_names=False, exclude_fields=None,
-               valid_range_from_file=True, units_from_file=True, **kwargs):
+            file_field_names=False, exclude_fields=None,
+            valid_range_from_file=True, units_from_file=True, **kwargs):
     """
     Read a UF File.
 
@@ -123,59 +124,46 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     # sweep_start_ray_index, sweep_end_ray_index
     sweep_start_ray_index = filemetadata('sweep_start_ray_index')
     sweep_end_ray_index = filemetadata('sweep_end_ray_index')
-    #sweep_start_ray_index['data'] = gfile.start_ray.astype('int32')
-    #sweep_end_ray_index['data'] = gfile.end_ray.astype('int32')
+    sweep_start_ray_index['data'] = np.array([0], dtype='int32')
+    sweep_end_ray_index['data'] = np.array([0], dtype='int32')
 
     # sweep number
     sweep_number = filemetadata('sweep_number')
     sweep_number['data'] = np.arange(nsweeps, dtype='int32')
-    #try:
-        #sweep_number['data'] = gfile.what_attrs('set_idx', 'int32')
-    #except KeyError:
-        #sweep_number['data'] = np.arange(gfile.nsweeps, dtype='int32')
 
     # sweep_type
     scan_type = UF_SWEEP_MODES[ufile.mandatory_header['sweep_mode']]
-    #scan_type = gfile.raw_scan0_group_attr('what', 'scan_type').lower()
-    # check that all scans in the volume are the same type
-    #if not gfile.is_file_single_scan_type():
-        #raise NotImplementedError('Mixed scan_type volume.')
-    #if scan_type not in ['ppi', 'rhi']:
-        #message = "Unknown scan type: %s, reading as RHI scans." % (scan_type)
-        #warnings.warn(message)
-        #scan_type = 'rhi'
 
     # sweep_mode, fixed_angle
     sweep_mode = filemetadata('sweep_mode')
     fixed_angle = filemetadata('fixed_angle')
-    #if scan_type == 'rhi':
-        #sweep_mode['data'] = np.array(gfile.nsweeps * ['rhi'])
-        #fixed_angle['data'] = gfile.how_attrs('azimuth', 'float32')
-    #elif scan_type == 'ppi':
-        #sweep_mode['data'] = np.array(gfile.nsweeps * ['azimuth_surveillance'])
-        #fixed_angle['data'] = gfile.how_attrs('elevation', 'float32')
-
-
+    if scan_type == 'rhi':
+        sweep_mode['data'] = np.array(nsweeps * ['rhi'])
+    elif scan_type == 'ppi':
+        sweep_mode['data'] = np.array(nsweeps * ['azimuth_surveillance'])
+    fixed = ufile.mandatory_header['fixed_angle'] / 64.
+    fixed_angle['data'] = np.array([fixed], dtype='float32')
 
     # elevation
     elevation = filemetadata('elevation')
-    #start_angle = gfile.ray_header('elevation_start', 'float32')
-    #stop_angle = gfile.ray_header('elevation_stop', 'float32')
-    #elevation['data'] = _avg_radial_angles(start_angle, stop_angle)
+    elev = ufile.mandatory_header['elevation'] / 64.
+    elevation['data'] = np.array([elev], dtype='float32')
 
     # azimuth
     azimuth = filemetadata('azimuth')
-    #start_angle = gfile.ray_header('azimuth_start', 'float32')
-    #stop_angle = gfile.ray_header('azimuth_stop', 'float32')
-    #azimuth['data'] = _avg_radial_angles(start_angle, stop_angle) % 360.
+    azim = ufile.mandatory_header['azimuth'] / 64.
+    azimuth['data'] = np.array([azim], dtype='float32')
 
     # fields
     fields = {}
+    for dic, data in zip(ufile.field_data, ufile.all_data):
+        field_name = dic['data_type']
+        fields[field_name] = {'data': data.reshape(1, -1)}
 
     # instrument_parameters
     instrument_parameters = None
 
-    #ufile.close()
+    # ufile.close()
 
     return Radar(
         time, _range, fields, metadata, scan_type,
@@ -184,4 +172,3 @@ def read_uf(filename, field_names=None, additional_metadata=None,
         sweep_end_ray_index,
         azimuth, elevation,
         instrument_parameters=instrument_parameters)
-

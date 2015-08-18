@@ -12,7 +12,6 @@ class UFFile(object):
         """ initialize. """
         self._filename = filename
 
-
         f = open(filename, 'rb')
         buf = f.read(6)
 
@@ -27,6 +26,8 @@ class UFFile(object):
             extra_offset = 4
         else:
             raise IOError('file in not a valid UF file')
+        self.extra_offset = extra_offset
+        self.f = f
 
         # read in the mandatory and optional header (if present)
         self.mandatory_header = _unpack_from_file(f, UF_MANDATORY_HEADER)
@@ -58,8 +59,27 @@ class UFFile(object):
         mask = self.raw_data == self.mandatory_header['missing_data_value']
         self.data = np.ma.masked_array(data, mask)
 
-        f.close()
+        self.all_data = [self.get_field_data(i) for i in
+                         range(self.data_header['record_nfields'])]
+
         return
+
+    def get_field_data(self, field_number):
+
+        offset = (self.field_data[field_number]['offset_field_header'] - 1) * 2
+        self.f.seek(offset + self.extra_offset)
+        field_header = _unpack_from_file(self.f, UF_FIELD_HEADER)
+
+        offset = (field_header['data_offset'] - 1) * 2
+        self.f.seek(offset + self.extra_offset)
+        s = self.f.read(field_header['nbins']*2)
+        raw_data = np.fromstring(s, dtype='>i2')
+
+        data = raw_data / float(field_header['scale_factor'])
+        mask = raw_data == self.mandatory_header['missing_data_value']
+        data = np.ma.masked_array(data, mask)
+        return data
+
 
 def _structure_size(structure):
     """ Find the size of a structure in bytes. """
@@ -71,6 +91,7 @@ def _unpack_from_file(fh, structure):
     size = _structure_size(structure)
     string = fh.read(size)
     return _unpack_structure(string, structure)
+
 
 def _unpack_from_buf(buf, pos, structure):
     """ Unpack a structure from a buffer. """
@@ -95,7 +116,7 @@ INT16 = 'h'
 
 # C.3 UF Mandatory header
 UF_MANDATORY_HEADER = (
-    ('uf_string','2s'),
+    ('uf_string', '2s'),
     ('record_length', INT16),
     ('offset_optional_header', INT16),
     ('offset_local_use_header', INT16),
@@ -105,8 +126,8 @@ UF_MANDATORY_HEADER = (
     ('ray_number', INT16),
     ('ray_record_number', INT16),
     ('sweep_number', INT16),
-    ('radar_name','8s'),
-    ('site_name','8s'),
+    ('radar_name', '8s'),
+    ('site_name', '8s'),
     ('latitude_degrees', INT16),
     ('latitude_minutes', INT16),
     ('latitude_seconds', INT16),
@@ -117,10 +138,10 @@ UF_MANDATORY_HEADER = (
     ('year', INT16),
     ('month', INT16),
     ('day', INT16),
-    ('hour' , INT16),
+    ('hour', INT16),
     ('minute', INT16),
     ('second', INT16),
-    ('time_zone','2s'),
+    ('time_zone', '2s'),
     ('azimuth', INT16),
     ('elevation', INT16),
     ('sweep_mode', INT16),
@@ -128,8 +149,8 @@ UF_MANDATORY_HEADER = (
     ('sweep_rate', INT16),
     ('generation_year', INT16),
     ('generation_month', INT16),
-    ('generation_day' , INT16),
-    ('generation_facility_name','8s'),
+    ('generation_day', INT16),
+    ('generation_facility_name', '8s'),
     ('missing_data_value', INT16),
 )
 
@@ -190,4 +211,3 @@ UF_FSI_DM = (
     ('antenna_gain', INT16),
     ('pulse_duration', INT16),
 )
-
