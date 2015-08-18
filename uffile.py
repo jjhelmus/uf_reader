@@ -37,6 +37,25 @@ class UFFile(object):
             buf = f.read(8)
         f.close()
 
+    def get_field_data(self, field_number):
+
+        first_ray = self.rays[0]
+        ngates = len(first_ray.all_data[field_number])
+        nrays = len(self.rays)
+        missing_data_value = first_ray.mandatory_header['missing_data_value']
+        scale_factor = first_ray.field_headers[field_number]['scale_factor']
+
+        raw_data = np.empty((nrays, ngates), 'int16')
+        for i, ray in enumerate(self.rays):
+            ray_data = ray.all_data[field_number]
+            bins = len(ray_data)
+            raw_data[i, :bins] = ray.all_data[field_number]
+            raw_data[i, bins:] = missing_data_value
+
+        data = raw_data / float(scale_factor)
+        mask = raw_data == missing_data_value
+        return np.ma.masked_array(data, mask)
+
 
 class UFRay(object):
     """
@@ -84,10 +103,7 @@ class UFRay(object):
         s = self._buf[offset:offset+field_header['nbins']*2]
         raw_data = np.fromstring(s, dtype='>i2')
 
-        data = raw_data / float(field_header['scale_factor'])
-        mask = raw_data == self.mandatory_header['missing_data_value']
-        data = np.ma.masked_array(data, mask)
-        return data
+        return raw_data
 
 
 def _structure_size(structure):

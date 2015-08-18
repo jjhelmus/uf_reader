@@ -71,18 +71,19 @@ def read_uf(filename, field_names=None, additional_metadata=None,
                                 file_field_names, exclude_fields)
 
     # Open UF file and get handle
-    ufile = UFFile(filename).rays[0]
-    nsweeps = ufile.mandatory_header['sweep_number']
+    ufile = UFFile(filename)
+    first_ray = ufile.rays[0]
+    nsweeps = first_ray.mandatory_header['sweep_number']
 
     # time
-    year = ufile.mandatory_header['year']
+    year = first_ray.mandatory_header['year']
     if year < 1900:
         year += 2000   # years after 2000, 11 -> 2011
-    month = ufile.mandatory_header['month']
-    day = ufile.mandatory_header['day']
-    hour = ufile.mandatory_header['hour']
-    minute = ufile.mandatory_header['minute']
-    second = ufile.mandatory_header['second']
+    month = first_ray.mandatory_header['month']
+    day = first_ray.mandatory_header['day']
+    hour = first_ray.mandatory_header['hour']
+    minute = first_ray.mandatory_header['minute']
+    second = first_ray.mandatory_header['second']
     start_time = datetime.datetime(year, month, day, hour, minute, second)
     time = filemetadata('time')
     time['units'] = make_time_unit_str(start_time)
@@ -90,7 +91,7 @@ def read_uf(filename, field_names=None, additional_metadata=None,
 
     # range
     _range = filemetadata('range')
-    field_header = ufile.field_headers[0]
+    field_header = first_ray.field_headers[0]
     ngates = field_header['nbins']
     start = field_header['range_start_m']
     step = field_header['range_spacing_m']
@@ -103,24 +104,25 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     latitude = filemetadata('latitude')
     longitude = filemetadata('longitude')
     altitude = filemetadata('altitude')
-    lat_deg = ufile.mandatory_header['latitude_degrees']
-    lat_min = ufile.mandatory_header['latitude_minutes']
-    lat_sec = ufile.mandatory_header['latitude_seconds'] / 64.
+    lat_deg = first_ray.mandatory_header['latitude_degrees']
+    lat_min = first_ray.mandatory_header['latitude_minutes']
+    lat_sec = first_ray.mandatory_header['latitude_seconds'] / 64.
     lat = dms_to_d([lat_deg, lat_min, lat_sec])
-    lon_deg = ufile.mandatory_header['longitude_degrees']
-    lon_min = ufile.mandatory_header['longitude_minutes']
-    lon_sec = ufile.mandatory_header['longitude_seconds'] / 64.
+    lon_deg = first_ray.mandatory_header['longitude_degrees']
+    lon_min = first_ray.mandatory_header['longitude_minutes']
+    lon_sec = first_ray.mandatory_header['longitude_seconds'] / 64.
     lon = dms_to_d([lon_deg, lon_min, lon_sec])
     latitude['data'] = np.array([lat], dtype='float64')
     longitude['data'] = np.array([lon], dtype='float64')
     altitude['data'] = np.array(
-        [ufile.mandatory_header['height_above_sea_level']], dtype='float64')
+        [first_ray.mandatory_header['height_above_sea_level']],
+        dtype='float64')
 
     # metadata
     metadata = filemetadata('metadata')
     metadata['original_container'] = 'UF'
-    metadata['site_name'] = ufile.mandatory_header['site_name']
-    metadata['radar_name'] = ufile.mandatory_header['radar_name']
+    metadata['site_name'] = first_ray.mandatory_header['site_name']
+    metadata['radar_name'] = first_ray.mandatory_header['radar_name']
 
     # sweep_start_ray_index, sweep_end_ray_index
     sweep_start_ray_index = filemetadata('sweep_start_ray_index')
@@ -133,7 +135,7 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     sweep_number['data'] = np.arange(nsweeps, dtype='int32')
 
     # sweep_type
-    scan_type = UF_SWEEP_MODES[ufile.mandatory_header['sweep_mode']]
+    scan_type = UF_SWEEP_MODES[first_ray.mandatory_header['sweep_mode']]
 
     # sweep_mode, fixed_angle
     sweep_mode = filemetadata('sweep_mode')
@@ -142,29 +144,27 @@ def read_uf(filename, field_names=None, additional_metadata=None,
         sweep_mode['data'] = np.array(nsweeps * ['rhi'])
     elif scan_type == 'ppi':
         sweep_mode['data'] = np.array(nsweeps * ['azimuth_surveillance'])
-    fixed = ufile.mandatory_header['fixed_angle'] / 64.
+    fixed = first_ray.mandatory_header['fixed_angle'] / 64.
     fixed_angle['data'] = np.array([fixed], dtype='float32')
 
     # elevation
     elevation = filemetadata('elevation')
-    elev = ufile.mandatory_header['elevation'] / 64.
+    elev = first_ray.mandatory_header['elevation'] / 64.
     elevation['data'] = np.array([elev], dtype='float32')
 
     # azimuth
     azimuth = filemetadata('azimuth')
-    azim = ufile.mandatory_header['azimuth'] / 64.
+    azim = first_ray.mandatory_header['azimuth'] / 64.
     azimuth['data'] = np.array([azim], dtype='float32')
 
     # fields
     fields = {}
-    for dic, data in zip(ufile.field_data, ufile.all_data):
+    for i, dic in enumerate(first_ray.field_data):
         field_name = dic['data_type']
-        fields[field_name] = {'data': data.reshape(1, -1)}
+        fields[field_name] = {'data': ufile.get_field_data(i)}
 
     # instrument_parameters
     instrument_parameters = None
-
-    # ufile.close()
 
     return Radar(
         time, _range, fields, metadata, scan_type,
