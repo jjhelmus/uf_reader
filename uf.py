@@ -71,7 +71,7 @@ def read_uf(filename, field_names=None, additional_metadata=None,
                                 file_field_names, exclude_fields)
 
     # Open UF file and get handle
-    ufile = UFFile(filename)
+    ufile = UFFile(filename).rays[0]
     nsweeps = ufile.mandatory_header['sweep_number']
 
     # time

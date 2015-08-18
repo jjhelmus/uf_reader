@@ -26,10 +26,26 @@ class UFFile(object):
         self.padding = padding
 
         # read in the first record
-        record_size = struct.unpack('>h', buf[padding+2:padding+4])[0] * 2
-        bytes_read = len(buf) - padding
-        bytes_to_read = record_size - bytes_read
-        self._buf = buf[-bytes_read:] + f.read(bytes_to_read)
+        self.rays = []
+        while len(buf) == 8:
+            record_size = struct.unpack('>h', buf[padding+2:padding+4])[0] * 2
+            bytes_read = len(buf) - padding
+            bytes_to_read = record_size - bytes_read
+            record = buf[-bytes_read:] + f.read(bytes_to_read)
+            self.rays.append(UFRay(record))
+            f.read(padding)
+            buf = f.read(8)
+        f.close()
+
+
+class UFRay(object):
+    """
+    A class for reading data from a UF Ray (Record)
+    """
+
+    def __init__(self, record):
+
+        self._buf = record
 
         # read in the mandatory header
         self.mandatory_header = _unpack_from_buf(
