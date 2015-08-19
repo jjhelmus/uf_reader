@@ -2,6 +2,7 @@ import StringIO
 
 import pyart
 import uf
+import uffile
 
 import numpy as np
 from numpy.testing import assert_raises
@@ -85,5 +86,26 @@ def test_raises():
 
 def test_read_fileobj():
     fh = open('sample_files/test.uf', 'rb')
-    radar = uf.read_uf(_fh)
+    radar = uf.read_uf(fh)
     fh.close()
+
+
+def test_instrument_parameters():
+    assert radar.scan_rate is not None
+    assert 'pulse_width' in radar.instrument_parameters
+    assert 'radar_beam_width_h' in radar.instrument_parameters
+    assert 'radar_beam_width_v' in radar.instrument_parameters
+    assert 'radar_receiver_bandwidth' in radar.instrument_parameters
+    assert 'polarization_mode' in radar.instrument_parameters
+    assert 'frequency' in radar.instrument_parameters
+    assert 'prt' in radar.instrument_parameters
+    assert 'nyquist_velocity' in radar.instrument_parameters
+
+
+def test_failures():
+    ufile = uffile.UFFile('sample_files/test.uf')
+    ufile.rays[0].field_headers[1].pop('nyquist')
+    assert ufile.get_nyquists() is None
+
+    ufile.rays[0].field_headers[0]['polarization'] = 99
+    assert ufile.get_sweep_polarizations()[0] == 'elliptical'

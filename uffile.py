@@ -148,12 +148,64 @@ class UFFile(object):
             elevation[i] = ray.mandatory_header['elevation'] / 64.
         return elevation
 
+    def get_sweep_rates(self):
+        """ Return an array of sweep rates for each ray in degrees/sec. """
+        sweep_rates = np.empty((self.nrays, ), dtype='float32')
+        for i, ray in enumerate(self.rays):
+            sweep_rates[i] = ray.mandatory_header['sweep_rate'] / 64.
+        return sweep_rates
+
+    def get_pulse_widths(self):
+        """ Return an array of pulse widths for each ray in meters. """
+        pulse_widths = np.empty((self.nrays, ), dtype='float32')
+        for i, ray in enumerate(self.rays):
+            pulse_widths[i] = ray.field_headers[0]['pulse_width_m']
+        return pulse_widths
+
+    def get_prts(self):
+        """ Return an array of prts for each ray in microseconds. """
+        prts = np.empty((self.nrays, ), dtype='float32')
+        for i, ray in enumerate(self.rays):
+            prts[i] = ray.field_headers[0]['prt_ms']
+        return prts
+
+    def get_nyquists(self):
+        """
+        Return an array of nyquist velocities for each ray in m/s.
+
+        Returns None if nyquist velocities cannot be determined for all rays.
+        """
+        field_headers = self.rays[0].field_headers
+        try:
+            field_idx = ['nyquist' in fh for fh in field_headers].index(True)
+        except ValueError:
+            return None  # True not in list
+        nyquist = np.empty((self.nrays, ), dtype='float32')
+        for i, ray in enumerate(self.rays):
+            scale = ray.field_headers[field_idx]['scale_factor']
+            try:
+                nyquist[i] = ray.field_headers[field_idx]['nyquist'] / scale
+            except KeyError:
+                return None  # nyquist not in field header
+        return nyquist
+
     def get_sweep_fixed_angles(self):
         """ Return an array of fixed angles for each sweep in degrees. """
         fixed = np.empty((self.nsweeps, ), dtype='float32')
         for i, ray_num in enumerate(self.first_ray_in_sweep):
             fixed[i] = self.rays[ray_num].mandatory_header['fixed_angle'] / 64.
         return fixed
+
+    def get_sweep_polarizations(self):
+        """ Return an array of polarization modes for each sweep. """
+        modes = []
+        for ray_num in self.first_ray_in_sweep:
+            ray = self.rays[ray_num]
+            polarization = ray.field_headers[0]['polarization']
+            if polarization > 3:
+                polarization = 3
+            modes.append(POLARIZATION_STR[polarization])
+        return np.array(modes)
 
     def get_datetimes(self):
         """ Return a list of datetimes for each ray. """
@@ -230,9 +282,15 @@ class UFRay(object):
         offset = (position['offset_field_header'] - 1) * 2
         field_header = _unpack_from_buf(self._buf, offset, UF_FIELD_HEADER)
         self.field_headers.append(field_header)
+        data_offset = (field_header['data_offset'] - 1) * 2
 
-        offset = (field_header['data_offset'] - 1) * 2
-        data_str = self._buf[offset:offset+field_header['nbins']*2]
+        # read in field specific parameters
+        if position['data_type'] in ['VF', 'VE', 'VR', 'VT', 'VP']:
+            if (data_offset - offset) == 42:
+                vel_header = _unpack_from_buf(self._buf, offset+38, UF_FSI_VEL)
+                field_header.update(vel_header)
+
+        data_str = self._buf[data_offset:data_offset+field_header['nbins']*2]
         raw_data = np.fromstring(data_str, dtype='>i2')
         return raw_data
 
@@ -300,11 +358,10 @@ def _unpack_structure(string, structure):
 
 # UF structures
 
-# Formats of stucture elements
+POLARIZATION_STR = ['horizontal', 'vertical', 'circular', 'elliptical']
+
 INT16 = 'h'
 
-
-# C.3 UF Mandatory header
 UF_MANDATORY_HEADER = (
     ('uf_string', '2s'),
     ('record_length', INT16),
@@ -377,7 +434,7 @@ UF_FIELD_HEADER = (
     ('beam_width_h', INT16),    # degrees * 64
     ('beam_width_v', INT16),    # degrees * 64
     ('bandwidth', INT16),       # Reciever bandwidth in MHz * 16
-    ('polarization', INT16),     # 1: hort, 2: vert 3: circular, 4: ellip
+    ('polarization', INT16),    # 1: hort, 2: vert 3: circular, 4: ellip
     ('wavelength_cm', INT16),   # cm * 64
     ('sample_size', INT16),
     ('threshold_data', '2s'),
@@ -385,7 +442,7 @@ UF_FIELD_HEADER = (
     ('scale', INT16),
     ('edit_code', '2s'),
     ('prt_ms', INT16),
-    ('bits_per_bin', INT16),    # Miust be 16
+    ('bits_per_bin', INT16),    # Must be 16
 )
 
 UF_FSI_VEL = (
@@ -393,6 +450,8 @@ UF_FSI_VEL = (
     ('spare', INT16),
 )
 
+# This structure is defined but not used in Py-ART
+# No sample file which contain the structure could be found.
 UF_FSI_DM = (
     ('radar_constant', INT16),
     ('noise_power', INT16),

@@ -13,12 +13,12 @@ from pyart.core.radar import Radar
 from uffile import UFFile
 
 # TODO
-# * instrument_parameters
 # * field parameters
 # * integrate into Py-ART
 # * docstring
 # * unit test + coverage
 
+_LIGHT_SPEED = 2.99792458e8  # speed of light in meters per second
 _UF_SWEEP_MODES = {
     0: 'calibration',
     1: 'ppi',
@@ -155,7 +155,11 @@ def read_uf(filename, field_names=None, additional_metadata=None,
         fields[field_name] = {'data': ufile.get_field_data(i)}
 
     # instrument_parameters
-    instrument_parameters = None
+    instrument_parameters = _get_instrument_parameters(ufile, filemetadata)
+
+    # scan rate
+    scan_rate = filemetadata('scan_rate')
+    scan_rate['data'] = ufile.get_sweep_rates()
 
     return Radar(
         time, _range, fields, metadata, scan_type,
@@ -163,4 +167,65 @@ def read_uf(filename, field_names=None, additional_metadata=None,
         sweep_number, sweep_mode, fixed_angle, sweep_start_ray_index,
         sweep_end_ray_index,
         azimuth, elevation,
+        scan_rate=scan_rate,
         instrument_parameters=instrument_parameters)
+
+
+def _get_instrument_parameters(ufile, filemetadata):
+    """ Return a dictionary containing instrument parameters. """
+
+    # pulse width
+    pulse_width = filemetadata('pulse_width')
+    pulse_width['data'] = ufile.get_pulse_widths() / _LIGHT_SPEED  # m->sec
+
+    # assume that the parameters in the first ray represent the beam widths,
+    # bandwidth and frequency in the entire volume
+    first_ray = ufile.rays[0]
+    field_header = first_ray.field_headers[0]
+    beam_width_h = field_header['beam_width_h'] / 64.
+    beam_width_v = field_header['beam_width_v'] / 64.
+    bandwidth = field_header['bandwidth'] / 16. * 1.e6
+    wavelength_cm = field_header['wavelength_cm'] / 64.
+    wavelength_hz = _LIGHT_SPEED / (wavelength_cm / 100.)
+
+    # radar_beam_width_h
+    radar_beam_width_h = filemetadata('radar_beam_width_h')
+    radar_beam_width_h['data'] = np.array([beam_width_h], dtype='float32')
+
+    # radar_beam_width_v
+    radar_beam_width_v = filemetadata('radar_beam_width_w')
+    radar_beam_width_v['data'] = np.array([beam_width_v], dtype='float32')
+
+    # radar_receiver_bandwidth
+    radar_receiver_bandwidth = filemetadata('radar_receiver_bandwidth')
+    radar_receiver_bandwidth['data'] = np.array([bandwidth], dtype='float32')
+
+    # polarization_mode
+    polarization_mode = filemetadata('polarization_mode')
+    polarization_mode['data'] = ufile.get_sweep_polarizations()
+
+    # frequency
+    frequency = filemetadata('frequency')
+    frequency['data'] = np.array([wavelength_hz], dtype='float32')
+
+    # prt
+    prt = filemetadata('prt')
+    prt['data'] = ufile.get_prts() / 1e6  # us->sec
+
+    instrument_parameters = {
+        'pulse_width': pulse_width,
+        'radar_beam_width_h': radar_beam_width_h,
+        'radar_beam_width_v': radar_beam_width_v,
+        'radar_receiver_bandwidth': radar_receiver_bandwidth,
+        'polarization_mode': polarization_mode,
+        'frequency': frequency,
+        'prt': prt,
+    }
+
+    # nyquist velocity if defined
+    nyquist_velocity = filemetadata('nyquist_velocity')
+    nyquist_velocity['data'] = ufile.get_nyquists()
+    if nyquist_velocity['data'] is not None:
+        instrument_parameters['nyquist_velocity'] = nyquist_velocity
+
+    return instrument_parameters
