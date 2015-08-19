@@ -73,7 +73,6 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     # Open UF file and get handle
     ufile = UFFile(filename)
     first_ray = ufile.rays[0]
-    nsweeps = first_ray.mandatory_header['sweep_number']
 
     # time
     year = first_ray.mandatory_header['year']
@@ -127,35 +126,34 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     # sweep_start_ray_index, sweep_end_ray_index
     sweep_start_ray_index = filemetadata('sweep_start_ray_index')
     sweep_end_ray_index = filemetadata('sweep_end_ray_index')
-    sweep_start_ray_index['data'] = np.array([0], dtype='int32')
-    sweep_end_ray_index['data'] = np.array([0], dtype='int32')
+    sweep_start_ray_index['data'] = ufile.first_ray_in_sweep
+    sweep_end_ray_index['data'] = ufile.last_ray_in_sweep
 
     # sweep number
     sweep_number = filemetadata('sweep_number')
-    sweep_number['data'] = np.arange(nsweeps, dtype='int32')
+    sweep_number['data'] = np.arange(ufile.nsweeps, dtype='int32')
 
     # sweep_type
     scan_type = UF_SWEEP_MODES[first_ray.mandatory_header['sweep_mode']]
 
     # sweep_mode, fixed_angle
     sweep_mode = filemetadata('sweep_mode')
-    fixed_angle = filemetadata('fixed_angle')
     if scan_type == 'rhi':
-        sweep_mode['data'] = np.array(nsweeps * ['rhi'])
+        sweep_mode['data'] = np.array(ufile.nsweeps * ['rhi'])
     elif scan_type == 'ppi':
-        sweep_mode['data'] = np.array(nsweeps * ['azimuth_surveillance'])
-    fixed = first_ray.mandatory_header['fixed_angle'] / 64.
-    fixed_angle['data'] = np.array([fixed], dtype='float32')
+        sweep_mode['data'] = np.array(ufile.nsweeps * ['azimuth_surveillance'])
 
     # elevation
     elevation = filemetadata('elevation')
-    elev = first_ray.mandatory_header['elevation'] / 64.
-    elevation['data'] = np.array([elev], dtype='float32')
+    elevation['data'] = ufile.get_elevations()
 
     # azimuth
     azimuth = filemetadata('azimuth')
-    azim = first_ray.mandatory_header['azimuth'] / 64.
-    azimuth['data'] = np.array([azim], dtype='float32')
+    azimuth['data'] = ufile.get_azimuths()
+
+    # fixed_angle
+    fixed_angle = filemetadata('fixed_angle')
+    fixed_angle['data'] = ufile.get_sweep_fixed_angles()
 
     # fields
     fields = {}

@@ -35,7 +35,33 @@ class UFFile(object):
             self.rays.append(UFRay(record))
             f.read(padding)
             buf = f.read(8)
+
+        # determine sweep information
+        self.ray_sweep_numbers = self._get_ray_sweep_numbers()
+        self.nsweeps = len(np.unique(self.ray_sweep_numbers))
+        first_ray_in_sweep, last_ray_in_sweep = self._get_sweep_limits()
+        self.first_ray_in_sweep = first_ray_in_sweep
+        self.last_ray_in_sweep = last_ray_in_sweep
+
         f.close()
+
+    def _get_ray_sweep_numbers(self):
+        nrays = len(self.rays)
+        ray_sweep_numbers = np.empty((nrays, ), dtype='int32')
+        for i, ray in enumerate(self.rays):
+            ray_sweep_numbers[i] = ray.mandatory_header['sweep_number']
+        return ray_sweep_numbers
+
+    def _get_sweep_limits(self):
+
+        first_ray_in_sweep = np.empty(self.nsweeps, dtype='int32')
+        last_ray_in_sweep = np.empty(self.nsweeps, dtype='int32')
+        unique_sweep_numbers = np.unique(self.ray_sweep_numbers)
+        for i, sweep_number in enumerate(unique_sweep_numbers):
+            matches = np.where(self.ray_sweep_numbers == sweep_number)
+            first_ray_in_sweep[i] = matches[0][0]
+            last_ray_in_sweep[i] = matches[0][-1]
+        return first_ray_in_sweep, last_ray_in_sweep
 
     def get_field_data(self, field_number):
 
@@ -55,6 +81,26 @@ class UFFile(object):
         data = raw_data / float(scale_factor)
         mask = raw_data == missing_data_value
         return np.ma.masked_array(data, mask)
+
+    def get_azimuths(self):
+        nrays = len(self.rays)
+        azimuth = np.empty((nrays, ), dtype='float32')
+        for i, ray in enumerate(self.rays):
+            azimuth[i] = ray.mandatory_header['azimuth'] / 64.
+        return azimuth
+
+    def get_elevations(self):
+        nrays = len(self.rays)
+        elevation = np.empty((nrays, ), dtype='float32')
+        for i, ray in enumerate(self.rays):
+            elevation[i] = ray.mandatory_header['elevation'] / 64.
+        return elevation
+
+    def get_sweep_fixed_angles(self):
+        fixed = np.empty((self.nsweeps, ), dtype='float32')
+        for i, ray_num in enumerate(self.first_ray_in_sweep):
+            fixed[i] = self.rays[ray_num].mandatory_header['fixed_angle'] / 64.
+        return fixed
 
 
 class UFRay(object):

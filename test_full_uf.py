@@ -48,7 +48,7 @@ def test_scan_type():
 
 
 def test_sweep_mode():
-    assert ref_radar.sweep_mode['data'] == radar.sweep_mode['data']
+    assert np.all(ref_radar.sweep_mode['data'] == radar.sweep_mode['data'])
 
 
 def test_fixed_angle():
