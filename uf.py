@@ -75,15 +75,7 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     first_ray = ufile.rays[0]
 
     # time
-    year = first_ray.mandatory_header['year']
-    if year < 1900:
-        year += 2000   # years after 2000, 11 -> 2011
-    month = first_ray.mandatory_header['month']
-    day = first_ray.mandatory_header['day']
-    hour = first_ray.mandatory_header['hour']
-    minute = first_ray.mandatory_header['minute']
-    second = first_ray.mandatory_header['second']
-    start_time = datetime.datetime(year, month, day, hour, minute, second)
+    start_time = first_ray.get_datetime()
     time = filemetadata('time')
     time['units'] = make_time_unit_str(start_time)
     time['data'] = np.array([0], dtype='float64')

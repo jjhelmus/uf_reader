@@ -1,4 +1,6 @@
 import struct
+import datetime
+
 import numpy as np
 
 
@@ -150,6 +152,17 @@ class UFRay(object):
         raw_data = np.fromstring(s, dtype='>i2')
 
         return raw_data
+
+    def get_datetime(self):
+        year = self.mandatory_header['year']
+        if year < 1900:
+            year += 2000   # years after 2000, 11 -> 2011
+        month = self.mandatory_header['month']
+        day = self.mandatory_header['day']
+        hour = self.mandatory_header['hour']
+        minute = self.mandatory_header['minute']
+        second = self.mandatory_header['second']
+        return datetime.datetime(year, month, day, hour, minute, second)
 
 
 def _structure_size(structure):
