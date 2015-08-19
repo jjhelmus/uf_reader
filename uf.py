@@ -13,7 +13,6 @@ from pyart.core.radar import Radar
 from uffile import UFFile
 
 # TODO
-# * field parameters
 # * integrate into Py-ART
 # * docstring
 # * unit test + coverage
@@ -43,7 +42,8 @@ _SWEEP_MODE_STR = {
 
 
 def read_uf(filename, field_names=None, additional_metadata=None,
-            file_field_names=False, exclude_fields=None, **kwargs):
+            file_field_names=False, exclude_fields=None,
+            delay_field_loading=False, **kwargs):
     """
     Read a UF File.
 
@@ -52,13 +52,17 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     filename : str or file-like
         Name of Universal format file to read data from.
     field_names : dict, optional
-        Dictionary mapping field names in the file names to radar field names.
-        Unlike other read functions, fields not in this dictionary or having a
-        value of None are still included in the radar.fields dictionary, to
-        exclude them use the `exclude_fields` parameter. Fields which are
-        mapped by this dictionary will be renamed from key to value.
+        Dictionary mapping UF data type names to radar field names. If a
+        data type found in the file does not appear in this dictionary or has
+        a value of None it will not be placed in the radar.fields dictionary.
+        A value of None, the default, will use the mapping defined in the
+        Py-ART configuration file.
     additional_metadata : dict of dicts, optional
-        This parameter is not used, it is included for uniformity.
+        Dictionary of dictionaries to retrieve metadata from during this read.
+        This metadata is not used during any successive file reads unless
+        explicitly included.  A value of None, the default, will not
+        introduct any addition metadata and the file specific or default
+        metadata as specified by the Py-ART configuration file will be used.
     file_field_names : bool, optional
         True to force the use of the field names from the file in which
         case the `field_names` parameter is ignored. False will use to
@@ -66,6 +70,9 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     exclude_fields : list or None, optional
         List of fields to exclude from the radar object. This is applied
         after the `file_field_names` and `field_names` parameters.
+    delay_field_loading : bool
+        This option is not implemented in the function but included for
+        compatability.
 
     Returns
     -------
@@ -150,9 +157,15 @@ def read_uf(filename, field_names=None, additional_metadata=None,
 
     # fields
     fields = {}
-    for i, dic in enumerate(first_ray.field_positions):
-        field_name = dic['data_type']
-        fields[field_name] = {'data': ufile.get_field_data(i)}
+    for uf_field_number, uf_field_dic in enumerate(first_ray.field_positions):
+        uf_field_name = uf_field_dic['data_type']
+        field_name = filemetadata.get_field_name(uf_field_name)
+        if field_name is None:
+            continue
+        field_dic = filemetadata(field_name)
+        field_dic['data'] = ufile.get_field_data(uf_field_number)
+        field_dic['_FillValue'] = get_fillvalue()
+        fields[field_name] = field_dic
 
     # instrument_parameters
     instrument_parameters = _get_instrument_parameters(ufile, filemetadata)

@@ -109,3 +109,8 @@ def test_failures():
 
     ufile.rays[0].field_headers[0]['polarization'] = 99
     assert ufile.get_sweep_polarizations()[0] == 'elliptical'
+
+
+def test_skip_field():
+    test_radar = uf.read_uf('sample_files/test.uf', exclude_fields=['DZ'])
+    assert 'DZ' not in radar.fields.keys()
