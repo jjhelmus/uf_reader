@@ -104,6 +104,9 @@ class UFFile(object):
             fixed[i] = self.rays[ray_num].mandatory_header['fixed_angle'] / 64.
         return fixed
 
+    def get_datetimes(self):
+        return [ray.get_datetime() for ray in self.rays]
+
 
 class UFRay(object):
     """

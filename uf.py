@@ -5,6 +5,7 @@ import datetime
 import warnings
 
 import numpy as np
+from netCDF4 import date2num
 
 from pyart.config import FileMetadata, get_fillvalue
 from pyart.io.common import make_time_unit_str, _test_arguments, dms_to_d
@@ -75,10 +76,11 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     first_ray = ufile.rays[0]
 
     # time
-    start_time = first_ray.get_datetime()
+    dts = ufile.get_datetimes()
+    units = make_time_unit_str(min(dts))
     time = filemetadata('time')
-    time['units'] = make_time_unit_str(start_time)
-    time['data'] = np.array([0], dtype='float64')
+    time['units'] = units
+    time['data'] = date2num(dts, units).astype('float32')
 
     # range
     _range = filemetadata('range')
