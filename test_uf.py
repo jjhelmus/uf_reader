@@ -1,8 +1,10 @@
+import StringIO
 
 import pyart
 import uf
 
 import numpy as np
+from numpy.testing import assert_raises
 
 radar = uf.read_uf('sample_files/test.uf')
 ref_radar = pyart.io.read_rsl('sample_files/test.uf', file_field_names=True)
@@ -74,3 +76,14 @@ def check_field(field):
     mask1 = np.ma.getmaskarray(ref_radar.fields[field]['data'])
     mask2 = np.ma.getmaskarray(radar.fields[field]['data'])
     assert np.all(mask1 == mask2)
+
+
+def test_raises():
+    fake_bad_file = StringIO.StringIO('XXXXXXXX')
+    assert_raises(IOError, uf.read_uf, fake_bad_file)
+
+
+def test_read_fileobj():
+    fh = open('sample_files/test.uf', 'rb')
+    radar = uf.read_uf(_fh)
+    fh.close()

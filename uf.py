@@ -1,19 +1,25 @@
+"""
 
-import struct
+==========
 
-import datetime
-import warnings
+"""
 
 import numpy as np
 from netCDF4 import date2num
 
 from pyart.config import FileMetadata, get_fillvalue
-from pyart.io.common import make_time_unit_str, _test_arguments, dms_to_d
+from pyart.io.common import make_time_unit_str, _test_arguments
 from pyart.core.radar import Radar
 from uffile import UFFile
 
+# TODO
+# * instrument_parameters
+# * field parameters
+# * integrate into Py-ART
+# * docstring
+# * unit test + coverage
 
-UF_SWEEP_MODES = {
+_UF_SWEEP_MODES = {
     0: 'calibration',
     1: 'ppi',
     2: 'coplane',
@@ -24,16 +30,26 @@ UF_SWEEP_MODES = {
     7: 'idle',
 }
 
+_SWEEP_MODE_STR = {
+    'calibration': 'calibration',
+    'ppi': 'azimuth_surveillance',
+    'coplane': 'coplane',
+    'rhi': 'rhi',
+    'vpt': 'vertical_pointint',
+    'target': 'pointing',
+    'manual': 'manual',
+    'idle': 'idle',
+}
+
 
 def read_uf(filename, field_names=None, additional_metadata=None,
-            file_field_names=False, exclude_fields=None,
-            valid_range_from_file=True, units_from_file=True, **kwargs):
+            file_field_names=False, exclude_fields=None, **kwargs):
     """
     Read a UF File.
 
     Parameters
     ----------
-    filename : str
+    filename : str or file-like
         Name of Universal format file to read data from.
     field_names : dict, optional
         Dictionary mapping field names in the file names to radar field names.
@@ -50,13 +66,6 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     exclude_fields : list or None, optional
         List of fields to exclude from the radar object. This is applied
         after the `file_field_names` and `field_names` parameters.
-    valid_range_from_file : bool, optional
-        True to extract valid range (valid_min and valid_max) for all
-        field from the file when they are present.  False will not extract
-        these parameters.
-    units_from_file : bool, optional
-        True to extract the units for all fields from the file when available.
-        False will not extract units using the default units for the fields.
 
     Returns
     -------
@@ -84,6 +93,8 @@ def read_uf(filename, field_names=None, additional_metadata=None,
 
     # range
     _range = filemetadata('range')
+    # assume that the number of gates and spacing from the first ray is
+    # representative of the entire volume
     field_header = first_ray.field_headers[0]
     ngates = field_header['nbins']
     start = field_header['range_start_m']
@@ -97,19 +108,10 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     latitude = filemetadata('latitude')
     longitude = filemetadata('longitude')
     altitude = filemetadata('altitude')
-    lat_deg = first_ray.mandatory_header['latitude_degrees']
-    lat_min = first_ray.mandatory_header['latitude_minutes']
-    lat_sec = first_ray.mandatory_header['latitude_seconds'] / 64.
-    lat = dms_to_d([lat_deg, lat_min, lat_sec])
-    lon_deg = first_ray.mandatory_header['longitude_degrees']
-    lon_min = first_ray.mandatory_header['longitude_minutes']
-    lon_sec = first_ray.mandatory_header['longitude_seconds'] / 64.
-    lon = dms_to_d([lon_deg, lon_min, lon_sec])
+    lat, lon, height = first_ray.get_location()
     latitude['data'] = np.array([lat], dtype='float64')
     longitude['data'] = np.array([lon], dtype='float64')
-    altitude['data'] = np.array(
-        [first_ray.mandatory_header['height_above_sea_level']],
-        dtype='float64')
+    altitude['data'] = np.array([height], dtype='float64')
 
     # metadata
     metadata = filemetadata('metadata')
@@ -128,14 +130,11 @@ def read_uf(filename, field_names=None, additional_metadata=None,
     sweep_number['data'] = np.arange(ufile.nsweeps, dtype='int32')
 
     # sweep_type
-    scan_type = UF_SWEEP_MODES[first_ray.mandatory_header['sweep_mode']]
+    scan_type = _UF_SWEEP_MODES[first_ray.mandatory_header['sweep_mode']]
 
-    # sweep_mode, fixed_angle
+    # sweep_mode
     sweep_mode = filemetadata('sweep_mode')
-    if scan_type == 'rhi':
-        sweep_mode['data'] = np.array(ufile.nsweeps * ['rhi'])
-    elif scan_type == 'ppi':
-        sweep_mode['data'] = np.array(ufile.nsweeps * ['azimuth_surveillance'])
+    sweep_mode['data'] = np.array(ufile.nsweeps * [_SWEEP_MODE_STR[scan_type]])
 
     # elevation
     elevation = filemetadata('elevation')
@@ -151,7 +150,7 @@ def read_uf(filename, field_names=None, additional_metadata=None,
 
     # fields
     fields = {}
-    for i, dic in enumerate(first_ray.field_data):
+    for i, dic in enumerate(first_ray.field_positions):
         field_name = dic['data_type']
         fields[field_name] = {'data': ufile.get_field_data(i)}
 
